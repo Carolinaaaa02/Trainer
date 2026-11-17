@@ -34,5 +34,5 @@ def chat(user_message: str) -> str:
 
 if __name__ == "__main__":
     respuesta = chat("Quiero empezar a ganar masa muscular. Tengo 3 días a la semana y solo mancuernas.")
-    print("Respuesta recibida:", repr(respuesta))
+    print("Response received:", repr(respuesta))
 
