@@ -145,5 +145,11 @@ def get_recent_workouts(
     ).fetchall()
     return [WorkoutSummary(**dict(row)) for row in rows]
 
+def get_exercise_by_name(conn: sqlite3.Connection, name: str) -> Exercise | None:
+    target = " ".join(name.split()).casefold()
+    for exercise in find_exercises(conn):
+        if exercise.name.casefold() == target:
+            return exercise
+    return None
 
 
