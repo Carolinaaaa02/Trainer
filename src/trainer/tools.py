@@ -63,7 +63,13 @@ def _log_workout(conn: sqlite3.Connection, user_id: int, args: JsonDict) -> Json
 
     entries: list[repo.SetEntry] = []
     unknown: list[str] = []
-    for raw in raw_sets:
+    for index, raw in enumerate(raw_sets, start=1):
+        missing = [k for k in ("exercise_name", "reps", "weight_kg") if raw.get(k) is None]
+        if missing:
+            return {
+                "error": f"Serie {index}: faltan los campos {missing}. "
+                         "No inventes valores: pregunta al usuario por los datos que faltan."
+            }
         name = str(raw["exercise_name"])
         exercise = repo.get_exercise_by_name(conn, name)
         if exercise is None:
@@ -72,7 +78,7 @@ def _log_workout(conn: sqlite3.Connection, user_id: int, args: JsonDict) -> Json
         reps = int(raw["reps"])
         weight = float(raw["weight_kg"])
         if reps <= 0 or weight < 0:
-            return {"error": "Las reps deben ser mayor que 0 y weight_kg no puede ser negativo"}
+            return {"error": "reps debe ser mayor que 0 y weight_kg no puede ser negativo"}
         entries.append(repo.SetEntry(exercise.id, reps, weight))
 
     if unknown:
@@ -151,9 +157,12 @@ TOOLS: list[ToolSpec] = [
         name="log_workout",
         description=(
             "Registra un entrenamiento realizado, con todas sus series. Solo úsala "
-            "cuando el usuario cuente lo que ya hizo. Los nombres de ejercicio deben "
+            "cuando el usuario cuente lo que ya hizo y haya dado ejercicio, "
+            "repeticiones y peso de cada serie. Si falta algún dato, NO inventes "
+            "valores: pregúntaselo al usuario. Los nombres de ejercicio deben "
             "existir en el catálogo."
         ),
+
         parameters={
             "type": "object",
             "properties": {

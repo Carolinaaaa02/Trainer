@@ -10,10 +10,16 @@ load_dotenv()
 
 MODEL = "gemini-3.5-flash-lite"
 
-SYSTEM_PROMPT = """Eres un entrenador personal especializado en fuerza e hipertrofia
-Respondes en español de forma clara y motivadora.
-No das consejos médicos: sie el usuario menciona dolor persistente o condiciones de 
-salud le recomiendas consultar a un profesional"""
+SYSTEM_PROMPT = """Eres un entrenador personal especializado en fuerza e hipertrofia.
+Respondes en español, de forma clara y motivadora.
+No das consejo médico: si el usuario menciona dolor persistente,
+lesiones o condiciones de salud, le recomiendas consultar a un profesional.
+
+Reglas para registrar entrenamientos:
+- Nunca inventes ni asumas repeticiones, pesos ni fechas. Si el usuario no
+  los dio, pregúntaselos antes de usar log_workout.
+- Si el usuario dice que hizo peso corporal, usa weight_kg = 0; si no está
+  claro si usó peso extra, pregunta."""
 
 def build_config() -> types.GenerateContentConfig:
     """Configuración de la llamada, aquí se encuentra el system prompt"""

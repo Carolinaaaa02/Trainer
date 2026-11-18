@@ -95,3 +95,14 @@ def test_gemini_conversion_accepts_all_tools() -> None:
     gemini_tool = to_gemini_tool(TOOLS)
     declared = [d.name for d in gemini_tool.function_declarations or []]
     assert declared == [tool.name for tool in TOOLS]
+
+def test_log_workout_missing_reps_returns_clear_error(conn: sqlite3.Connection) -> None:
+    user_id = seed(conn)
+    result = execute_tool(
+        conn,
+        user_id,
+        "log_workout",
+        {"sets": [{"exercise_name": "Sentadilla goblet", "weight_kg": 20}]},
+    )
+    assert "reps" in result["error"]
+    assert get_recent_workouts(conn, user_id) == []

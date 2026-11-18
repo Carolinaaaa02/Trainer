@@ -11,6 +11,7 @@ MESSAGES = [
     "Hoy hice 3 series de sentadilla goblet con 20 kg, 10 repeticiones cada una.",
     "Qué ejercicios de pecho puedo hacer con mancuernas?",
     "Me duele la rodilla izquierda desde hace una semana.",
+    "Hoy hice 3 series de sentadilla goblet con 20 kg",
 ]
 
 if __name__ == "__main__":
