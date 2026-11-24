@@ -152,4 +152,8 @@ def get_exercise_by_name(conn: sqlite3.Connection, name: str) -> Exercise | None
             return exercise
     return None
 
+def get_first_user_id(conn: sqlite3.Connection) -> int | None:
+    row = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+    return int(row["id"]) if row else None
+
 

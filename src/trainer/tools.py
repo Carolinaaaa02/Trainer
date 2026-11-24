@@ -102,6 +102,7 @@ def _report_injury(conn: sqlite3.Connection, user_id: int, args: JsonDict) -> Js
     if not description:
         return {"error": "La descripción de la lesión no puede estar vacía"}
     repo.add_injury(conn, user_id, description)
+    "Úsala solo después de que el usuario haya aceptado explícitamente que la registres."
     return {"saved": True, "description": description}
 
 TOOLS: list[ToolSpec] = [
