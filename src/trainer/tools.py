@@ -5,10 +5,16 @@ from datetime import date
 from logging import Handler
 from typing import Any
 
+from src.trainer.guardrails import is_affirmative
 from src.trainer import repository as repo
 
 JsonDict = dict[str, Any]
+Guard = Callable[[str, JsonDict], str | None]
 Handler = Callable[[sqlite3.Connection, int, JsonDict], JsonDict]
+
+MAX_SETS_PER_WORKOUT = 30
+MAX_REPS = 100
+MAX_WEIGHT_KG = 500.0
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -16,6 +22,7 @@ class ToolSpec:
     description: str
     parameters: JsonDict | None
     handler: Handler
+    guard: Guard | None = None
 
 def _search_exercises(conn: sqlite3.Connection, user_id: int, args: JsonDict) -> JsonDict:
     muscle = args.get("muscle_group")
@@ -77,14 +84,22 @@ def _log_workout(conn: sqlite3.Connection, user_id: int, args: JsonDict) -> Json
             continue
         reps = int(raw["reps"])
         weight = float(raw["weight_kg"])
-        if reps <= 0 or weight < 0:
-            return {"error": "reps debe ser mayor que 0 y weight_kg no puede ser negativo"}
+        if not 0 < reps <= MAX_REPS or not 0 <= weight <= MAX_WEIGHT_KG:
+            return {
+                "error": f"Valores fuera de rango: reps debe estar entre 1 y {MAX_REPS} "
+                f"y weight_kg entre 0 y {MAX_WEIGHT_KG}"
+                "Confirma los datos con el usuario; no los adivines"
+            }
         entries.append(repo.SetEntry(exercise.id, reps, weight))
-
+    if len(raw_sets) > MAX_SETS_PER_WORKOUT:
+        return {
+            "error": f"Máximo {MAX_SETS_PER_WORKOUT} series por registro."
+            "Confirma los datos con el usuario: no los adivines"
+        }
     if unknown:
         return {
             "error": f"Ejercicios no encontrados en el catálogo: {unknown}. "
-                     "Usa search_exercises para ver los nombres válidos."
+            "Usa search_exercises para ver los nombres válidos."
         }
 
     workout_id = repo.log_workout(
@@ -104,6 +119,19 @@ def _report_injury(conn: sqlite3.Connection, user_id: int, args: JsonDict) -> Js
     repo.add_injury(conn, user_id, description)
     "Úsala solo después de que el usuario haya aceptado explícitamente que la registres."
     return {"saved": True, "description": description}
+
+def _injury_consent_guard(user_message: str, args: JsonDict) -> str | None:
+    if args.get("user_confirmed") is not True:
+        return (
+            "Falta el consentimiento, pregunta al usuario si quiere que registres"
+            "la molestia y llama de nuevo con user_confirmed=true solo si acepta"
+        )
+    if not is_affirmative(user_message):
+        return (
+            "El último mensaje del usuario no es una aceptación clara. No registres"
+            "la molestia: pregunta si quiere que guardes y espera su respuesta"
+        )
+    return None
 
 TOOLS: list[ToolSpec] = [
     ToolSpec(
@@ -196,33 +224,47 @@ TOOLS: list[ToolSpec] = [
     ToolSpec(
         name="report_injury",
         description=(
-            "Guarda una lesión o molestia que el usuario menciona, para tenerla en "
-            "cuenta en futuros planes. No diagnostica ni da tratamiento."
+            "Guarda una lesión o molestia para tenerla en cuenta en futuros planes. "
+            "No diagnostica ni da tratamiento. Úsala SOLO si en su último mensaje el "
+            "usuario aceptó explícitamente que la registres; en ese caso envía "
+            "user_confirmed=true. Si no ha aceptado, pregúntale primero."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "description": {"type": "string", "description": "Descripción breve."},
+                "user_confirmed": {
+                    "type": "boolean",
+                    "description": "true solo si el usuario aceptó registrar la molestia"
+                },
             },
-            "required": ["description"],
+            "required": ["description", "user_confirmed"]
         },
         handler=_report_injury,
-    ),
+        guard=_injury_consent_guard,
+    )
 ]
 
 TOOLS_BY_NAME: dict[str, ToolSpec] = {tool.name: tool for tool in TOOLS}
 
 def execute_tool(
-    conn: sqlite3.Connection, user_id: int, name: str, args: JsonDict
+        conn: sqlite3.Connection,
+        user_id: int,
+        name:str,
+        args: JsonDict,
+        user_message: str = "",
 ) -> JsonDict:
     """Ejecuta una herramienta pedida por el modelo.
 
     Los errores se devuelven como datos (no como excepciones) para que
-    el modelo pueda leerlos y corregirse.
-    """
+    el modelo pueda leerlos y corregirse."""
     spec = TOOLS_BY_NAME.get(name)
     if spec is None:
         return {"error": f"Herramienta desconocida: {name}"}
+    if spec.guard is not None:
+        problem = spec.guard(user_message, args)
+        if problem is not None:
+            return {"error": problem}
     try:
         return spec.handler(conn, user_id, args)
     except (KeyError, TypeError, ValueError, sqlite3.Error) as exc:

@@ -45,6 +45,8 @@ def main() -> None:
         for trace in reply.tool_calls:
             status = "error" if "error" in trace.result else "ok"
             print(f" [herramienta] {trace.name} {trace.args} -> {status}")
+            if reply.guardrail:
+                print(f' [guardrail] {reply.guardrail}')
         print(f"\nEntrenador: {reply.text}")
 
 if __name__ == "__main__":

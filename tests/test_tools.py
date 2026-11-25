@@ -1,4 +1,5 @@
 import sqlite3
+import pytest
 
 from src.trainer.repository import (
     add_exercise,
@@ -74,17 +75,62 @@ def test_log_workout_invalid_date_returns_error(conn: sqlite3.Connection) -> Non
     assert "error" in result
 
 
-def test_report_injury_is_saved(conn: sqlite3.Connection) -> None:
+def test_report_injury_is_saved_with_consent(conn: sqlite3.Connection) -> None:
     user_id = seed(conn)
-    result = execute_tool(conn, user_id, "report_injury", {"description": "hombro derecho"})
+    result = execute_tool(
+        conn,
+        user_id,
+        "report_injury",
+        {"description": "hombro derecho", "user_confirmed": True},
+        user_message="Si, registrala",
+    )
     assert result["saved"] is True
     assert get_active_injuries(conn, user_id) == ["hombro derecho"]
+
+def test_report_injury_without_confirmation_flag_is_blocked(conn: sqlite3.Connection) -> None:
+    user_id = seed(conn)
+    result = execute_tool(
+        conn, user_id, "report_injury", {"description": "hombro derecho"}, user_message="Sí"
+    )
+    assert "consentimiento" in result["error"]
+    assert get_active_injuries(conn, user_id) == []
 
 
 def test_unknown_tool_returns_error(conn: sqlite3.Connection) -> None:
     result = execute_tool(conn, 1, "borrar_todo", {})
     assert "error" in result
 
+@pytest.mark.parametrize(
+    "user_message",
+    ["No, no la registres", "Me duele la rodilla derecha hoy", "Quizás luego"],
+)
+def test_report_injury_is_blocked_without_clear_acceptance(
+    conn: sqlite3.Connection, user_message: str
+) -> None:
+    user_id = seed(conn)
+    result = execute_tool(
+        conn,
+        user_id,
+        "report_injury",
+        {"description": "rodilla", "user_confirmed": True},
+        user_message=user_message,
+    )
+    assert "error" in result
+    assert get_active_injuries(conn, user_id) == []
+
+@pytest.mark.parametrize(("reps", "weight"), [(5000, 20.0), (10, 900.0)])
+def test_log_workout_rejects_absurd_values(
+    conn: sqlite3.Connection, reps: int, weight: float
+) -> None:
+    user_id = seed(conn)
+    result = execute_tool(
+        conn,
+        user_id,
+        "log_workout",
+        {"sets": [{"exercise_name": "Flexiones", "reps": reps, "weight_kg": weight}]},
+    )
+    assert "fuera de rango" in result["error"]
+    assert get_recent_workouts(conn, user_id) == []
 
 def test_no_tool_lets_the_model_choose_the_user(conn: sqlite3.Connection) -> None:
     for tool in TOOLS:

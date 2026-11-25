@@ -40,6 +40,9 @@ class GeminiModel:
     def user_message(self, text: str) -> types.Content:
         return types.Content(role="user", parts=[types.Part.from_text(text=text)])
 
+    def model_message(self, text: str) -> types.Content:
+        return types.Content(role="model", parts=[types.Part.from_text(text=text)])
+
     def tool_results_message(self, results: list[tuple[str, JsonDict]]):
         parts = [
             types.Part.from_function_response(name=name, response=result)
@@ -78,3 +81,4 @@ class GeminiModel:
                 print(f" (Servicio ocupado, reintentando en {wait}s...)")
                 time.sleep(wait)
         raise RuntimeError("Inalcanzable")
+

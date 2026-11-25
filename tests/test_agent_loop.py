@@ -2,10 +2,10 @@ import sqlite3
 import pytest
 from typing import Any
 
-from src.trainer.agent_loop import Agent, ModelReply, ToolCall
-from src.trainer.repository import add_exercise, add_user, get_recent_workouts
+from src.trainer.agent_loop import Agent, ModelReply, ToolCall, STEP_LIMIT_MESSAGE
+from src.trainer.repository import add_exercise, add_user, get_recent_workouts, get_active_injuries
 from src.trainer.tools import JsonDict
-
+from src.trainer.guardrails import CLINICAL_FALLBACK_MESSAGE
 def say(text: str) -> ModelReply:
     return ModelReply(message={"role": "model", "text": text}, text=text, tool_calls=[])
 
@@ -24,6 +24,9 @@ class FakeModel:
 
     def user_message(self, text: str) -> Any:
         return {"role": "user", "text": text}
+
+    def model_message(self, text: str) -> Any:
+        return {"role": "model", "text": text}
 
     def generate(self, history: list[Any]) -> ModelReply:
         self.history_sizes.append(len(history))
@@ -97,7 +100,7 @@ def test_loop_stops_at_max_steps(conn: sqlite3.Connection) -> None:
     model = FakeModel([call("get_user_profile", {})] * 10)
     agent = Agent(model, conn, seed(conn), max_steps=3)
     reply = agent.send("hola")
-    assert "no pude" in reply.text.lower()
+    assert reply.text == STEP_LIMIT_MESSAGE
     assert len(model.history_sizes) == 3
 
 class BrokenModel(FakeModel):
@@ -110,3 +113,42 @@ def test_history_is_rolled_back_when_the_model_fails(conn: sqlite3.Connection) -
     with pytest.raises(RuntimeError):
         agent.send("hola")
     assert agent.history == []
+
+def test_clinical_advice_is_replaced_when_user_reports_pain(conn: sqlite3.Connection) -> None:
+    risky = say("Evitemos por completo los ejercicios de hombro hasta que te sientas recuperada.")
+    agent = Agent(FakeModel([risky]), conn, seed(conn))
+    reply = agent.send("me duele el hombro")
+    assert reply.text == CLINICAL_FALLBACK_MESSAGE
+    assert reply.guardrail == "clinical_advice"
+    assert agent.history[-1]["text"] == CLINICAL_FALLBACK_MESSAGE
+
+def test_same_words_pass_when_user_did_not_report_pain(conn: sqlite3.Connection) -> None:
+    text = "Descansa 90 segundos entre series."
+    agent = Agent(FakeModel([say(text)]), conn, seed(conn))
+    reply = agent.send("dame una rutina de pecho")
+    assert reply.text == text
+    assert reply.guardrail is None
+
+def test_long_input_is_rejected_without_calling_the_model(conn: sqlite3.Connection) -> None:
+    agent = Agent(FakeModel([]), conn, seed(conn))  # si llamara al modelo, fallaría
+    reply = agent.send("a" * 2000)
+    assert reply.guardrail == "input_too_long"
+    assert agent.history == []
+
+def test_injury_is_not_saved_before_the_user_accepts(conn: sqlite3.Connection) -> None:
+    user_id = seed(conn)
+    injury = {"description": "rodilla", "user_confirmed": True}
+    model = FakeModel([call("report_injury", injury), say("¿Quieres que la registre?")])
+    agent = Agent(model, conn, user_id)
+    agent.send("me duele la rodilla")
+    assert "error" in agent.history[2]["results"][0][1]
+    assert get_active_injuries(conn, user_id) == []
+
+
+def test_injury_is_saved_when_the_user_accepts(conn: sqlite3.Connection) -> None:
+    user_id = seed(conn)
+    injury = {"description": "rodilla", "user_confirmed": True}
+    model = FakeModel([call("report_injury", injury), say("Listo, registrada.")])
+    Agent(model, conn, user_id).send("Sí, regístrala")
+    assert get_active_injuries(conn, user_id) == ["rodilla"]
+
